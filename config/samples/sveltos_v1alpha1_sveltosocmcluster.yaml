@@ -1,0 +1,9 @@
+apiVersion: sveltos.open-cluster-management.io/v1alpha1
+kind: SveltosOCMCluster
+metadata:
+  labels:
+    app.kubernetes.io/name: sveltos-ocm-addon
+    app.kubernetes.io/managed-by: kustomize
+  name: sveltosocmcluster-sample
+spec:
+  # TODO(user): Add fields here
