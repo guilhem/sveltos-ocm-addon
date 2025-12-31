@@ -6,4 +6,14 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: sveltosocmcluster-sample
 spec:
-  # TODO(user): Add fields here
+  # Namespace where SveltosCluster resources will be created
+  # Default: sveltos
+  sveltosNamespace: sveltos
+
+  # Token validity period (golang duration string)
+  # Default: 168h (7 days)
+  tokenValidity: "168h"
+
+  # Sync labels from ManagedCluster to SveltosCluster
+  # Default: true
+  labelSync: true

@@ -1,0 +1,25 @@
+apiVersion: addon.open-cluster-management.io/v1alpha1
+kind: ClusterManagementAddOn
+metadata:
+  name: sveltos-ocm-addon
+  annotations:
+    addon.open-cluster-management.io/lifecycle: "addon-manager"
+spec:
+  addOnMeta:
+    displayName: Sveltos OCM Integration
+    description: |
+      Automatically registers OCM managed clusters with Sveltos for multi-cluster management.
+      This addon creates SveltosCluster resources on the hub cluster using managed-serviceaccount
+      for secure token-based authentication.
+  supportedConfigs:
+  - group: sveltos.open-cluster-management.io
+    resource: sveltosocmclusters
+  installStrategy:
+    type: Placements
+    placements:
+    - name: global
+      namespace: open-cluster-management-global-set
+      configs:
+      - group: sveltos.open-cluster-management.io
+        resource: sveltosocmclusters
+        name: default

@@ -1,0 +1,9 @@
+apiVersion: sveltos.open-cluster-management.io/v1alpha1
+kind: SveltosOCMCluster
+metadata:
+  name: default
+  namespace: open-cluster-management-global-set
+spec:
+  sveltosNamespace: sveltos
+  tokenValidity: "168h"  # 7 days
+  labelSync: true

@@ -20,9 +20,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // SveltosOCMClusterSpec defines the desired state of SveltosOCMCluster
 type SveltosOCMClusterSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -30,19 +27,46 @@ type SveltosOCMClusterSpec struct {
 	// The following markers will use OpenAPI v3 schema to validate the value
 	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
 
-	// foo is an example field of SveltosOCMCluster. Edit sveltosocmcluster_types.go to remove/update
+	// SveltosNamespace is the namespace where SveltosCluster resources will be created
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:default=sveltos
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	SveltosNamespace string `json:"sveltosNamespace,omitempty"`
+
+	// TokenValidity specifies the validity period for the managed service account token
+	// Format: golang duration string (e.g., "24h", "168h")
+	// +optional
+	TokenValidity metav1.Duration `json:"tokenValidity,omitempty"`
+
+	// LabelSync specifies whether to sync labels from ManagedCluster to SveltosCluster
+	// +kubebuilder:default=true
+	// +optional
+	LabelSync bool `json:"labelSync"`
+}
+
+// RegisteredClusterInfo contains information about a registered cluster
+type RegisteredClusterInfo struct {
+	// ClusterName is the name of the managed cluster
+	ClusterName string `json:"clusterName"`
+
+	// ClusterNamespace is the namespace of the managed cluster
+	ClusterNamespace string `json:"clusterNamespace"`
+
+	// TokenSecretRef references the secret containing the service account token
+	// +optional
+	TokenSecretRef *string `json:"tokenSecretRef,omitempty"`
+
+	// ExpirationTime is the expiration time of the token
+	// +optional
+	ExpirationTime *metav1.Time `json:"expirationTime,omitempty"`
+
+	// SveltosClusterCreated indicates if the SveltosCluster has been created
+	// +optional
+	SveltosClusterCreated bool `json:"sveltosClusterCreated,omitempty"`
 }
 
 // SveltosOCMClusterStatus defines the observed state of SveltosOCMCluster.
 type SveltosOCMClusterStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
 	// conditions represent the current state of the SveltosOCMCluster resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
 	//
@@ -56,6 +80,12 @@ type SveltosOCMClusterStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// RegisteredClusters lists all managed clusters registered with their Sveltos clusters
+	// +optional
+	// +listType=map
+	// +listMapKey=clusterName
+	RegisteredClusters []RegisteredClusterInfo `json:"registeredClusters,omitempty"`
 }
 
 // +kubebuilder:object:root=true

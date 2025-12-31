@@ -39,9 +39,21 @@ spec:
           spec:
             description: spec defines the desired state of SveltosOCMCluster
             properties:
-              foo:
-                description: foo is an example field of SveltosOCMCluster. Edit sveltosocmcluster_types.go
-                  to remove/update
+              labelSync:
+                default: true
+                description: LabelSync specifies whether to sync labels from ManagedCluster
+                  to SveltosCluster
+                type: boolean
+              sveltosNamespace:
+                default: sveltos
+                description: SveltosNamespace is the namespace where SveltosCluster
+                  resources will be created
+                minLength: 1
+                type: string
+              tokenValidity:
+                description: |-
+                  TokenValidity specifies the validity period for the managed service account token
+                  Format: golang duration string (e.g., "24h", "168h")
                 type: string
             type: object
           status:
@@ -115,6 +127,40 @@ spec:
                 type: array
                 x-kubernetes-list-map-keys:
                 - type
+                x-kubernetes-list-type: map
+              registeredClusters:
+                description: RegisteredClusters lists all managed clusters registered
+                  with their Sveltos clusters
+                items:
+                  description: RegisteredClusterInfo contains information about a
+                    registered cluster
+                  properties:
+                    clusterName:
+                      description: ClusterName is the name of the managed cluster
+                      type: string
+                    clusterNamespace:
+                      description: ClusterNamespace is the namespace of the managed
+                        cluster
+                      type: string
+                    expirationTime:
+                      description: ExpirationTime is the expiration time of the token
+                      format: date-time
+                      type: string
+                    sveltosClusterCreated:
+                      description: SveltosClusterCreated indicates if the SveltosCluster
+                        has been created
+                      type: boolean
+                    tokenSecretRef:
+                      description: TokenSecretRef references the secret containing
+                        the service account token
+                      type: string
+                  required:
+                  - clusterName
+                  - clusterNamespace
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - clusterName
                 x-kubernetes-list-type: map
             type: object
         required:
