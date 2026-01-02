@@ -29,7 +29,7 @@ type SveltosOCMClusterSpec struct {
 
 	// SveltosNamespace is the namespace where SveltosCluster resources will be created
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:default=sveltos
+	// +kubebuilder:default=projectsveltos
 	// +optional
 	SveltosNamespace string `json:"sveltosNamespace,omitempty"`
 

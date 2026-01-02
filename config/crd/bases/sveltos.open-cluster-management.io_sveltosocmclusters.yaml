@@ -45,7 +45,7 @@ spec:
                   to SveltosCluster
                 type: boolean
               sveltosNamespace:
-                default: sveltos
+                default: projectsveltos
                 description: SveltosNamespace is the namespace where SveltosCluster
                   resources will be created
                 minLength: 1

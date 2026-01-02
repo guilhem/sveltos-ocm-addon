@@ -7,8 +7,8 @@ metadata:
   name: sveltosocmcluster-sample
 spec:
   # Namespace where SveltosCluster resources will be created
-  # Default: sveltos
-  sveltosNamespace: sveltos
+  # Default: projectsveltos (hardcoded in Sveltos)
+  sveltosNamespace: projectsveltos
 
   # Token validity period (golang duration string)
   # Default: 168h (7 days)

@@ -1,0 +1,67 @@
+# Example: Select clusters by label
+#
+# This example shows how to configure the addon to only deploy on clusters
+# with the label "sveltos-enabled=true".
+#
+# Usage:
+# 1. Apply this file: kubectl apply -f placement_by_label.yaml
+# 2. Update the ClusterManagementAddOn to reference this placement
+# 3. Label your clusters: kubectl label managedcluster <name> sveltos-enabled=true
+
+---
+# Namespace for placement resources
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sveltos-ocm-addon
+
+---
+# Bind the default ManagedClusterSet to the namespace
+# This allows the Placement to select clusters from this set
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSetBinding
+metadata:
+  name: default
+  namespace: sveltos-ocm-addon
+spec:
+  clusterSet: default
+
+---
+# Placement that selects clusters with sveltos-enabled=true label
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: sveltos-enabled-clusters
+  namespace: sveltos-ocm-addon
+spec:
+  predicates:
+    - requiredClusterSelector:
+        labelSelector:
+          matchLabels:
+            sveltos-enabled: "true"
+
+---
+# Updated ClusterManagementAddOn that uses the custom placement
+apiVersion: addon.open-cluster-management.io/v1alpha1
+kind: ClusterManagementAddOn
+metadata:
+  name: sveltos-ocm-addon
+  annotations:
+    addon.open-cluster-management.io/lifecycle: "addon-manager"
+spec:
+  addOnMeta:
+    displayName: Sveltos OCM Integration
+    description: Registers OCM managed clusters with Sveltos
+  supportedConfigs:
+    - group: sveltos.open-cluster-management.io
+      resource: sveltosocmclusters
+  installStrategy:
+    type: Placements
+    placements:
+      - name: sveltos-enabled-clusters
+        namespace: sveltos-ocm-addon
+        configs:
+          - group: sveltos.open-cluster-management.io
+            resource: sveltosocmclusters
+            name: default
+            namespace: open-cluster-management
