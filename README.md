@@ -93,12 +93,26 @@ kubectl apply -k config/ocm
 ```
 
 This creates:
-- `ClusterManagementAddOn/sveltos-ocm-addon`: Defines the addon with global placement (all clusters)
+- `Placement/sveltos-ocm`: Selects all clusters from the global ManagedClusterSet
+- `ClusterManagementAddOn/sveltos-ocm-addon`: Defines the addon referencing the placement
 - `SveltosOCMCluster/default`: Default configuration
+
+> **Note**: Ensure a `ManagedClusterSetBinding` for the `global` ManagedClusterSet exists in the `open-cluster-management-addon` namespace. If not, create it:
+> ```bash
+> kubectl apply -f - <<EOF
+> apiVersion: cluster.open-cluster-management.io/v1beta2
+> kind: ManagedClusterSetBinding
+> metadata:
+>   name: global
+>   namespace: open-cluster-management-addon
+> spec:
+>   clusterSet: global
+> EOF
+> ```
 
 ## Selecting Which Clusters Get Sveltos Integration
 
-By default, the addon is installed on **all managed clusters** using the `global` Placement in `open-cluster-management` namespace.
+By default, the addon is installed on **all managed clusters** using the `sveltos-ocm` Placement in `open-cluster-management-addon` namespace.
 
 To select specific clusters, you need to create a custom Placement.
 

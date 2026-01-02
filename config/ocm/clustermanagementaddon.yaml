@@ -12,15 +12,15 @@ spec:
       This addon creates SveltosCluster resources on the hub cluster using managed-serviceaccount
       for secure token-based authentication.
   supportedConfigs:
-  - group: sveltos.open-cluster-management.io
-    resource: sveltosocmclusters
+    - group: sveltos.open-cluster-management.io
+      resource: sveltosocmclusters
   installStrategy:
     type: Placements
     placements:
-    - name: global
-      namespace: open-cluster-management
-      configs:
-      - group: sveltos.open-cluster-management.io
-        resource: sveltosocmclusters
-        name: default
-        namespace: open-cluster-management
+      - name: sveltos-ocm
+        namespace: open-cluster-management-addon
+        configs:
+          - group: sveltos.open-cluster-management.io
+            resource: sveltosocmclusters
+            name: default
+            namespace: open-cluster-management

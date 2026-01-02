@@ -1,3 +1,4 @@
 resources:
+- placement.yaml
 - clustermanagementaddon.yaml
 - sveltosocmcluster_default.yaml
