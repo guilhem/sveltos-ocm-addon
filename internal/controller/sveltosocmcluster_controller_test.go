@@ -17,21 +17,28 @@ limitations under the License.
 package controller
 
 import (
+	"encoding/json"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	libsveltosv1beta1 "github.com/projectsveltos/libsveltos/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	addonv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	authv1beta1 "open-cluster-management.io/managed-serviceaccount/apis/authentication/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	jsonserializer "k8s.io/apimachinery/pkg/runtime/serializer/json"
 
 	sveltosv1alpha1 "github.com/guilhem/sveltos-ocm-addon/api/v1alpha1"
 )
@@ -102,6 +109,92 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 				clusterName := ""
 				expected := "-sveltos-kubeconfig"
 				Expect(defaultSveltosKubeconfigName(clusterName)).To(Equal(expected))
+			})
+		})
+
+		Describe("JSON serialization with GVK", func() {
+			It("should include apiVersion and kind when serializing ClusterRole", func() {
+				// Create a ClusterRole without TypeMeta
+				clusterRole := &rbacv1.ClusterRole{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-role",
+					},
+					Rules: []rbacv1.PolicyRule{
+						{
+							APIGroups: []string{"*"},
+							Resources: []string{"*"},
+							Verbs:     []string{"*"},
+						},
+					},
+				}
+
+				clusterRole.GetObjectKind().SetGroupVersionKind(
+					rbacv1.SchemeGroupVersion.WithKind("ClusterRole"),
+				)
+
+				ser := jsonserializer.NewSerializerWithOptions(
+					jsonserializer.DefaultMetaFactory, scheme.Scheme, scheme.Scheme,
+					jsonserializer.SerializerOptions{Yaml: false, Pretty: false, Strict: false},
+				)
+
+				// Use the same serializer as in the controller
+				raw, err := runtime.Encode(ser, clusterRole)
+				Expect(err).NotTo(HaveOccurred())
+
+				// print
+				GinkgoWriter.Printf("Serialized ClusterRole: %s\n", string(raw))
+
+				// Parse the JSON to check for apiVersion and kind
+				var result map[string]interface{}
+				err = json.Unmarshal(raw, &result)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Verify GVK is present
+				Expect(result).To(HaveKey("apiVersion"), "apiVersion should be present in serialized JSON")
+				Expect(result).To(HaveKey("kind"), "kind should be present in serialized JSON")
+				Expect(result["apiVersion"]).To(Equal("rbac.authorization.k8s.io/v1"))
+				Expect(result["kind"]).To(Equal("ClusterRole"))
+
+			})
+
+			It("should include apiVersion and kind when serializing ClusterRoleBinding", func() {
+				clusterRoleBinding := &rbacv1.ClusterRoleBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-binding",
+					},
+					Subjects: []rbacv1.Subject{
+						{
+							Kind:      "ServiceAccount",
+							Name:      "test-sa",
+							Namespace: "test-ns",
+						},
+					},
+					RoleRef: rbacv1.RoleRef{
+						APIGroup: "rbac.authorization.k8s.io",
+						Kind:     "ClusterRole",
+						Name:     "test-role",
+					},
+				}
+
+				codecs := serializer.NewCodecFactory(scheme.Scheme)
+				info, ok := runtime.SerializerInfoForMediaType(codecs.SupportedMediaTypes(), runtime.ContentTypeJSON)
+				Expect(ok).To(BeTrue())
+
+				enc := codecs.EncoderForVersion(info.Serializer, rbacv1.SchemeGroupVersion)
+
+				raw, err := runtime.Encode(enc, clusterRoleBinding)
+				Expect(err).NotTo(HaveOccurred())
+
+				var result map[string]interface{}
+				err = json.Unmarshal(raw, &result)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(result).To(HaveKey("apiVersion"), "apiVersion should be present")
+				Expect(result).To(HaveKey("kind"), "kind should be present")
+				Expect(result["apiVersion"]).To(Equal("rbac.authorization.k8s.io/v1"))
+				Expect(result["kind"]).To(Equal("ClusterRoleBinding"))
+
+				GinkgoWriter.Printf("Serialized ClusterRoleBinding: %s\n", string(raw))
 			})
 		})
 	})

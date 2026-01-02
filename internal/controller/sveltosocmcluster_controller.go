@@ -24,11 +24,12 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/scheme"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	kjson "k8s.io/apimachinery/pkg/runtime/serializer/json"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -386,20 +387,20 @@ func (r *SveltosOCMClusterReconciler) createOrUpdateRBACManifestWork(
 		},
 	}
 
-	// Serialize the resources to JSON using the scheme (auto-injects GVK)
-	serializer := kjson.NewSerializerWithOptions(
-		kjson.DefaultMetaFactory,
-		r.Scheme, // creater
-		r.Scheme, // typer - used to look up GVK
-		kjson.SerializerOptions{},
-	)
+	codecs := serializer.NewCodecFactory(scheme.Scheme)
+	info, ok := runtime.SerializerInfoForMediaType(codecs.SupportedMediaTypes(), runtime.ContentTypeJSON)
+	if !ok {
+		return fmt.Errorf("serializer for media type %s not found", runtime.ContentTypeJSON)
+	}
 
-	clusterRoleRaw, err := runtime.Encode(serializer, clusterRole)
+	enc := codecs.EncoderForVersion(info.Serializer, rbacv1.SchemeGroupVersion)
+
+	clusterRoleRaw, err := runtime.Encode(enc, clusterRole)
 	if err != nil {
 		return fmt.Errorf("failed to encode ClusterRole: %w", err)
 	}
 
-	clusterRoleBindingRaw, err := runtime.Encode(serializer, clusterRoleBinding)
+	clusterRoleBindingRaw, err := runtime.Encode(enc, clusterRoleBinding)
 	if err != nil {
 		return fmt.Errorf("failed to encode ClusterRoleBinding: %w", err)
 	}
