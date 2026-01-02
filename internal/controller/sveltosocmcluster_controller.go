@@ -23,6 +23,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,7 +42,7 @@ import (
 	libsveltosv1beta1 "github.com/projectsveltos/libsveltos/api/v1beta1"
 	addonv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
-	authv1alpha1 "open-cluster-management.io/managed-serviceaccount/apis/authentication/v1alpha1"
+	authv1beta1 "open-cluster-management.io/managed-serviceaccount/apis/authentication/v1beta1"
 
 	sveltosv1alpha1 "github.com/guilhem/sveltos-ocm-addon/api/v1alpha1"
 )
@@ -68,7 +69,8 @@ type SveltosOCMClusterReconciler struct {
 // +kubebuilder:rbac:groups=sveltos.open-cluster-management.io,resources=sveltosocmclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=sveltos.open-cluster-management.io,resources=sveltosocmclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=sveltos.open-cluster-management.io,resources=sveltosocmclusters/finalizers,verbs=update
-// +kubebuilder:rbac:groups=addon.open-cluster-management.io,resources=managedclusteraddons,verbs=get;list;watch
+// +kubebuilder:rbac:groups=addon.open-cluster-management.io,resources=managedclusteraddons,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=addon.open-cluster-management.io,resources=clustermanagementaddons,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.open-cluster-management.io,resources=managedclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=authentication.open-cluster-management.io,resources=managedserviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=lib.projectsveltos.io,resources=sveltosclusters,verbs=get;list;watch;create;update;patch;delete
@@ -180,8 +182,14 @@ func (r *SveltosOCMClusterReconciler) reconcileCluster(
 		ClusterNamespace: clusterName,
 	}
 
+	// 0. Verify managed-serviceaccount addon is installed
+	if err := r.checkManagedServiceAccountAddon(ctx, clusterName); err != nil {
+		log.Error(err, "managed-serviceaccount addon check failed", "cluster", clusterName)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, clusterInfo, err
+	}
+
 	// 1. Ensure ManagedServiceAccount exists
-	msa := &authv1alpha1.ManagedServiceAccount{
+	msa := &authv1beta1.ManagedServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ManagedServiceAccountName,
 			Namespace: clusterName,
@@ -260,15 +268,69 @@ func (r *SveltosOCMClusterReconciler) reconcileCluster(
 
 // configureManagedServiceAccount configures a ManagedServiceAccount resource
 func (r *SveltosOCMClusterReconciler) configureManagedServiceAccount(
-	msa *authv1alpha1.ManagedServiceAccount,
+	msa *authv1beta1.ManagedServiceAccount,
 	sveltosOCMCluster *sveltosv1alpha1.SveltosOCMCluster,
 ) {
-	msa.Spec = authv1alpha1.ManagedServiceAccountSpec{
-		Rotation: authv1alpha1.ManagedServiceAccountRotation{
+	// Use the token validity from the spec, or use the default if not specified
+	validity := sveltosOCMCluster.Spec.TokenValidity
+	if validity.Duration == 0 {
+		// Parse the default validity duration
+		defaultDuration, err := time.ParseDuration(DefaultTokenValidity)
+		if err == nil {
+			validity = metav1.Duration{Duration: defaultDuration}
+		}
+	}
+
+	msa.Spec = authv1beta1.ManagedServiceAccountSpec{
+		Rotation: authv1beta1.ManagedServiceAccountRotation{
 			Enabled:  true,
-			Validity: sveltosOCMCluster.Spec.TokenValidity,
+			Validity: validity,
 		},
 	}
+}
+
+// checkManagedServiceAccountAddon verifies that the managed-serviceaccount addon is installed
+// and creates the ManagedClusterAddOn if it doesn't exist
+func (r *SveltosOCMClusterReconciler) checkManagedServiceAccountAddon(
+	ctx context.Context,
+	clusterName string,
+) error {
+	log := logf.FromContext(ctx)
+
+	// First check if ClusterManagementAddOn exists (addon installed on hub)
+	cma := &addonv1alpha1.ClusterManagementAddOn{}
+	if err := r.Get(ctx, types.NamespacedName{Name: "managed-serviceaccount"}, cma); err != nil {
+		if errors.IsNotFound(err) {
+			return fmt.Errorf("managed-serviceaccount ClusterManagementAddOn not found. Please install the managed-serviceaccount addon on the hub: https://open-cluster-management.io/getting-started/integration/managed-serviceaccount/")
+		}
+		return fmt.Errorf("failed to get managed-serviceaccount ClusterManagementAddOn: %w", err)
+	}
+
+	// Create or get ManagedClusterAddOn for this cluster
+	addon := &addonv1alpha1.ManagedClusterAddOn{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "managed-serviceaccount",
+			Namespace: clusterName,
+		},
+	}
+
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, addon, func() error {
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create/update managed-serviceaccount ManagedClusterAddOn: %w", err)
+	}
+	if op == controllerutil.OperationResultCreated {
+		log.Info("Created managed-serviceaccount ManagedClusterAddOn", "cluster", clusterName)
+		// Return error to requeue and wait for addon to be ready
+		return fmt.Errorf("managed-serviceaccount addon just created, waiting for it to become available")
+	}
+
+	if !meta.IsStatusConditionTrue(addon.Status.Conditions, addonv1alpha1.ManagedClusterAddOnConditionAvailable) {
+		return fmt.Errorf("managed-serviceaccount addon is not yet available")
+	}
+
+	return nil
 }
 
 // createOrUpdateSveltosCluster creates or updates a SveltosCluster and its kubeconfig secret
@@ -282,27 +344,29 @@ func (r *SveltosOCMClusterReconciler) createOrUpdateSveltosCluster(
 ) (*libsveltosv1beta1.SveltosCluster, error) {
 	log := logf.FromContext(ctx)
 
-	// Extract token and CA from the secret
+	// Extract token from the secret
 	token, ok := tokenSecret.Data["token"]
 	if !ok {
 		return nil, fmt.Errorf("token not found in secret")
 	}
 
-	ca, ok := tokenSecret.Data["ca.crt"]
-	if !ok {
-		return nil, fmt.Errorf("ca.crt not found in secret")
+	// Use cluster-proxy (prerequisite)
+	proxyNamespace := "open-cluster-management-addon"
+	apiServerURL := fmt.Sprintf("https://cluster-proxy-addon-user.%s.svc:9092/%s", proxyNamespace, clusterName)
+
+	// Get the CA from the cluster-proxy-user-serving-cert secret
+	proxyCASecret := &corev1.Secret{}
+	err := r.Get(ctx, types.NamespacedName{
+		Namespace: proxyNamespace,
+		Name:      "cluster-proxy-user-serving-cert",
+	}, proxyCASecret)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cluster-proxy CA cert (is cluster-proxy installed with enableServiceProxy=true?): %w", err)
 	}
 
-	// Get API server URL from ManagedCluster
-	apiServerURL := ""
-	for _, clientConfig := range managedCluster.Spec.ManagedClusterClientConfigs {
-		if clientConfig.URL != "" {
-			apiServerURL = clientConfig.URL
-			break
-		}
-	}
-	if apiServerURL == "" {
-		return nil, fmt.Errorf("no API server URL found in ManagedCluster")
+	ca, ok := proxyCASecret.Data["ca.crt"]
+	if !ok {
+		return nil, fmt.Errorf("ca.crt not found in cluster-proxy-user-serving-cert secret")
 	}
 
 	// Create kubeconfig
@@ -403,7 +467,7 @@ func (r *SveltosOCMClusterReconciler) reconcileDelete(
 		}
 
 		// Delete ManagedServiceAccount
-		msa := &authv1alpha1.ManagedServiceAccount{
+		msa := &authv1beta1.ManagedServiceAccount{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      ManagedServiceAccountName,
 				Namespace: cluster.ClusterNamespace,

@@ -265,8 +265,6 @@ k8s.io/utils v0.0.0-20251222233032-718f0e51e6d2 h1:OfgiEo21hGiwx1oJUU5MpEaeOEg6c
 k8s.io/utils v0.0.0-20251222233032-718f0e51e6d2/go.mod h1:xDxuJ0whA3d0I4mf/C4ppKHxXynQ+fxnkmQH0vTHnuk=
 open-cluster-management.io/api v1.1.0 h1:fu5xst9T/Ya6o41kqdd0zbNiDU+D3nNMTvoRVeF8j+U=
 open-cluster-management.io/api v1.1.0/go.mod h1:lEc5Wkc9ON5ym/qAtIqNgrE7NW7IEOCOC611iQMlnKM=
-open-cluster-management.io/managed-serviceaccount v0.7.0 h1:OShodBB3i+rMXjR9xEF6ySp9yBeiiLlEOAKvPA2v3i4=
-open-cluster-management.io/managed-serviceaccount v0.7.0/go.mod h1:NNKqC+cePQ9HH0r7mb9CYSk/hXGsNYu9+K4YfcZTwAk=
 open-cluster-management.io/managed-serviceaccount v0.9.0 h1:YK2AwVyjDF3IJGv48+Nc8dDjfHA9AklHvVBO9fPSNd4=
 open-cluster-management.io/managed-serviceaccount v0.9.0/go.mod h1:q/pASWYWNEz3AodqKWphmMvK0IdmlWYltwDicjYBizs=
 sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.2 h1:jpcvIRr3GLoUoEKRkHKSmGjxb6lWwrBlJsXc+eUYQHM=

@@ -29,7 +29,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	addonv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
-	authv1alpha1 "open-cluster-management.io/managed-serviceaccount/apis/authentication/v1alpha1"
+	authv1beta1 "open-cluster-management.io/managed-serviceaccount/apis/authentication/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -163,7 +163,7 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 			}
 
 			// Cleanup ManagedServiceAccount
-			msa := &authv1alpha1.ManagedServiceAccount{}
+			msa := &authv1beta1.ManagedServiceAccount{}
 			msaKey := types.NamespacedName{Name: ManagedServiceAccountName, Namespace: clusterNS}
 			if err := k8sClient.Get(ctx, msaKey, msa); err == nil {
 				_ = k8sClient.Delete(ctx, msa)
@@ -326,7 +326,7 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 				Expect(result.RequeueAfter).To(BeNumerically(">", 0))
 
 				By("Verifying ManagedServiceAccount was created")
-				msa := &authv1alpha1.ManagedServiceAccount{}
+				msa := &authv1beta1.ManagedServiceAccount{}
 				msaKey := types.NamespacedName{Name: ManagedServiceAccountName, Namespace: clusterNS}
 				Expect(k8sClient.Get(ctx, msaKey, msa)).To(Succeed())
 				Expect(msa.Spec.Rotation.Enabled).To(BeTrue())
@@ -390,13 +390,13 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 				Expect(k8sClient.Create(ctx, tokenSecret)).To(Succeed())
 
 				// Create ManagedServiceAccount with token reference
-				msa := &authv1alpha1.ManagedServiceAccount{
+				msa := &authv1beta1.ManagedServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      ManagedServiceAccountName,
 						Namespace: clusterNS,
 					},
-					Spec: authv1alpha1.ManagedServiceAccountSpec{
-						Rotation: authv1alpha1.ManagedServiceAccountRotation{
+					Spec: authv1beta1.ManagedServiceAccountSpec{
+						Rotation: authv1beta1.ManagedServiceAccountRotation{
 							Enabled: true,
 						},
 					},
@@ -404,7 +404,7 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 				Expect(k8sClient.Create(ctx, msa)).To(Succeed())
 
 				// Update ManagedServiceAccount status with token reference
-				msa.Status.TokenSecretRef = &authv1alpha1.SecretRef{
+				msa.Status.TokenSecretRef = &authv1beta1.SecretRef{
 					Name:                 tokenSecret.Name,
 					LastRefreshTimestamp: metav1.Now(),
 				}
@@ -514,14 +514,14 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 				Expect(k8sClient.Create(ctx, tokenSecret)).To(Succeed())
 
 				// Create ManagedServiceAccount with token
-				msa := &authv1alpha1.ManagedServiceAccount{
+				msa := &authv1beta1.ManagedServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      ManagedServiceAccountName,
 						Namespace: clusterNS,
 					},
 				}
 				Expect(k8sClient.Create(ctx, msa)).To(Succeed())
-				msa.Status.TokenSecretRef = &authv1alpha1.SecretRef{
+				msa.Status.TokenSecretRef = &authv1beta1.SecretRef{
 					Name:                 tokenSecret.Name,
 					LastRefreshTimestamp: metav1.Now(),
 				}
@@ -587,14 +587,14 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 				Expect(k8sClient.Create(ctx, tokenSecret)).To(Succeed())
 
 				// Create ManagedServiceAccount
-				msa := &authv1alpha1.ManagedServiceAccount{
+				msa := &authv1beta1.ManagedServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      ManagedServiceAccountName,
 						Namespace: clusterNS,
 					},
 				}
 				Expect(k8sClient.Create(ctx, msa)).To(Succeed())
-				msa.Status.TokenSecretRef = &authv1alpha1.SecretRef{
+				msa.Status.TokenSecretRef = &authv1beta1.SecretRef{
 					Name:                 tokenSecret.Name,
 					LastRefreshTimestamp: metav1.Now(),
 				}
@@ -696,14 +696,14 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 				}
 				Expect(k8sClient.Create(ctx, invalidSecret)).To(Succeed())
 
-				msa := &authv1alpha1.ManagedServiceAccount{
+				msa := &authv1beta1.ManagedServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      ManagedServiceAccountName,
 						Namespace: clusterNS,
 					},
 				}
 				Expect(k8sClient.Create(ctx, msa)).To(Succeed())
-				msa.Status.TokenSecretRef = &authv1alpha1.SecretRef{
+				msa.Status.TokenSecretRef = &authv1beta1.SecretRef{
 					Name:                 invalidSecret.Name,
 					LastRefreshTimestamp: metav1.Now(),
 				}
@@ -765,14 +765,14 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 				}
 				Expect(k8sClient.Create(ctx, tokenSecret)).To(Succeed())
 
-				msa := &authv1alpha1.ManagedServiceAccount{
+				msa := &authv1beta1.ManagedServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      ManagedServiceAccountName,
 						Namespace: clusterNS,
 					},
 				}
 				Expect(k8sClient.Create(ctx, msa)).To(Succeed())
-				msa.Status.TokenSecretRef = &authv1alpha1.SecretRef{
+				msa.Status.TokenSecretRef = &authv1beta1.SecretRef{
 					Name:                 tokenSecret.Name,
 					LastRefreshTimestamp: metav1.Now(),
 				}
@@ -848,14 +848,14 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 					}
 					Expect(k8sClient.Create(ctx, tokenSecret)).To(Succeed())
 
-					msa := &authv1alpha1.ManagedServiceAccount{
+					msa := &authv1beta1.ManagedServiceAccount{
 						ObjectMeta: metav1.ObjectMeta{
 							Name:      ManagedServiceAccountName,
 							Namespace: ns,
 						},
 					}
 					Expect(k8sClient.Create(ctx, msa)).To(Succeed())
-					msa.Status.TokenSecretRef = &authv1alpha1.SecretRef{
+					msa.Status.TokenSecretRef = &authv1beta1.SecretRef{
 						Name:                 tokenSecret.Name,
 						LastRefreshTimestamp: metav1.Now(),
 					}
@@ -884,7 +884,7 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 					_ = k8sClient.Get(ctx, types.NamespacedName{Name: AddonName, Namespace: cluster2NS}, addon)
 					_ = k8sClient.Delete(ctx, addon)
 
-					msa := &authv1alpha1.ManagedServiceAccount{}
+					msa := &authv1beta1.ManagedServiceAccount{}
 					_ = k8sClient.Get(ctx, types.NamespacedName{Name: ManagedServiceAccountName, Namespace: cluster2NS}, msa)
 					_ = k8sClient.Delete(ctx, msa)
 
@@ -912,7 +912,7 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 		It("should configure ManagedServiceAccount with correct spec", func() {
 			reconciler := &SveltosOCMClusterReconciler{}
 
-			msa := &authv1alpha1.ManagedServiceAccount{}
+			msa := &authv1beta1.ManagedServiceAccount{}
 			sveltosOCMCluster := &sveltosv1alpha1.SveltosOCMCluster{
 				Spec: sveltosv1alpha1.SveltosOCMClusterSpec{
 					TokenValidity: metav1.Duration{Duration: 24 * time.Hour},
