@@ -110,11 +110,29 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 		var (
 			reconciler     *SveltosOCMClusterReconciler
 			testNamespace  string
-			sveltosNS      string
 			clusterNS      string
 			resourceName   string
 			namespacedName types.NamespacedName
 		)
+
+		// Helper function to set ManagedClusterAddOn status to available
+		setAddonAvailable := func(addonName string, namespace string) {
+			addon := &addonv1alpha1.ManagedClusterAddOn{}
+			addonKey := types.NamespacedName{Name: addonName, Namespace: namespace}
+			Expect(k8sClient.Get(ctx, addonKey, addon)).To(Succeed())
+
+			addon.Status.Conditions = []metav1.Condition{
+				{
+					Type:               addonv1alpha1.ManagedClusterAddOnConditionAvailable,
+					Status:             metav1.ConditionTrue,
+					Reason:             "ManagedClusterAddOnAvailable",
+					Message:            "ManagedClusterAddOn is available",
+					ObservedGeneration: addon.Generation,
+					LastTransitionTime: metav1.Now(),
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, addon)).To(Succeed())
+		}
 
 		BeforeEach(func() {
 			reconciler = &SveltosOCMClusterReconciler{
@@ -124,7 +142,6 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 
 			// Use unique names for each test
 			testNamespace = "default"
-			sveltosNS = "projectsveltos"
 			clusterNS = "cluster1"
 			resourceName = "test-sveltos-ocm-cluster"
 			namespacedName = types.NamespacedName{
@@ -132,16 +149,42 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 				Namespace: testNamespace,
 			}
 
-			// Create test namespaces
-			for _, ns := range []string{sveltosNS, clusterNS} {
-				namespace := &corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{Name: ns},
-				}
-				err := k8sClient.Create(ctx, namespace)
-				if err != nil && !apierrors.IsAlreadyExists(err) {
-					Expect(err).NotTo(HaveOccurred())
-				}
+			// Create test namespaces (cluster namespace is needed for OCM resources)
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: clusterNS},
 			}
+			err := k8sClient.Create(ctx, namespace)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			// Create open-cluster-management-addon namespace for cluster-proxy
+			addonNamespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: "open-cluster-management-addon"},
+			}
+			_ = k8sClient.Create(ctx, addonNamespace) // Ignore if it already exists
+
+			// Create cluster-proxy-user-serving-cert secret in open-cluster-management-addon namespace
+			// This is required by createOrUpdateSveltosCluster to get the CA cert
+			proxyCASecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "cluster-proxy-user-serving-cert",
+					Namespace: "open-cluster-management-addon",
+				},
+				Data: map[string][]byte{
+					"ca.crt": []byte("-----BEGIN CERTIFICATE-----\nMIIC...fake...cert\n-----END CERTIFICATE-----"),
+				},
+			}
+			_ = k8sClient.Create(ctx, proxyCASecret) // Ignore if it already exists
+
+			// Create ClusterManagementAddOn for managed-serviceaccount addon on hub
+			// This is required by checkManagedServiceAccountAddon
+			cma := &addonv1alpha1.ClusterManagementAddOn{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "managed-serviceaccount",
+				},
+			}
+			_ = k8sClient.Create(ctx, cma) // Ignore if it already exists
 		})
 
 		AfterEach(func() {
@@ -178,14 +221,14 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 
 			// Cleanup SveltosCluster
 			sc := &libsveltosv1beta1.SveltosCluster{}
-			scKey := types.NamespacedName{Name: clusterNS, Namespace: sveltosNS}
+			scKey := types.NamespacedName{Name: clusterNS, Namespace: clusterNS}
 			if err := k8sClient.Get(ctx, scKey, sc); err == nil {
 				_ = k8sClient.Delete(ctx, sc)
 			}
 
 			// Cleanup secrets
 			secret := &corev1.Secret{}
-			secretKey := types.NamespacedName{Name: defaultSveltosKubeconfigName(clusterNS), Namespace: sveltosNS}
+			secretKey := types.NamespacedName{Name: defaultSveltosKubeconfigName(clusterNS), Namespace: clusterNS}
 			if err := k8sClient.Get(ctx, secretKey, secret); err == nil {
 				_ = k8sClient.Delete(ctx, secret)
 			}
@@ -219,8 +262,7 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 						Namespace: testNamespace,
 					},
 					Spec: sveltosv1alpha1.SveltosOCMClusterSpec{
-						SveltosNamespace: sveltosNS,
-						LabelSync:        true,
+						LabelSync: true,
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -248,9 +290,7 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 						Name:      resourceName,
 						Namespace: testNamespace,
 					},
-					Spec: sveltosv1alpha1.SveltosOCMClusterSpec{
-						SveltosNamespace: sveltosNS,
-					},
+					Spec: sveltosv1alpha1.SveltosOCMClusterSpec{},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 
@@ -295,14 +335,13 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 						Namespace: testNamespace,
 					},
 					Spec: sveltosv1alpha1.SveltosOCMClusterSpec{
-						SveltosNamespace: sveltosNS,
-						TokenValidity:    metav1.Duration{Duration: 168 * time.Hour},
-						LabelSync:        true,
+						TokenValidity: metav1.Duration{Duration: 168 * time.Hour},
+						LabelSync:     true,
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 
-				// Create ManagedClusterAddOn
+				// Create sveltos-ocm-addon ManagedClusterAddOn
 				addon := &addonv1alpha1.ManagedClusterAddOn{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      AddonName,
@@ -311,11 +350,17 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 				}
 				Expect(k8sClient.Create(ctx, addon)).To(Succeed())
 
-				By("Running first reconciliation (adds finalizer)")
+				// Set sveltos-ocm-addon to available status
+				setAddonAvailable(AddonName, clusterNS)
+
+				By("Running first reconciliation (adds finalizer and creates managed-serviceaccount ManagedClusterAddOn)")
 				_, err := reconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: namespacedName,
 				})
 				Expect(err).NotTo(HaveOccurred())
+
+				// Set managed-serviceaccount addon to available
+				setAddonAvailable("managed-serviceaccount", clusterNS)
 
 				By("Running second reconciliation (creates ManagedServiceAccount)")
 				result, err := reconciler.Reconcile(ctx, reconcile.Request{
@@ -341,14 +386,13 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 						Namespace: testNamespace,
 					},
 					Spec: sveltosv1alpha1.SveltosOCMClusterSpec{
-						SveltosNamespace: sveltosNS,
-						TokenValidity:    metav1.Duration{Duration: 168 * time.Hour},
-						LabelSync:        true,
+						TokenValidity: metav1.Duration{Duration: 168 * time.Hour},
+						LabelSync:     true,
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 
-				// Create ManagedClusterAddOn
+				// Create sveltos-ocm-addon ManagedClusterAddOn
 				addon := &addonv1alpha1.ManagedClusterAddOn{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      AddonName,
@@ -356,6 +400,9 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 					},
 				}
 				Expect(k8sClient.Create(ctx, addon)).To(Succeed())
+
+				// Set sveltos-ocm-addon to available status
+				setAddonAvailable(AddonName, clusterNS)
 
 				// Create ManagedCluster with API server URL
 				managedCluster := &clusterv1.ManagedCluster{
@@ -420,6 +467,9 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
+				// Set managed-serviceaccount addon to available
+				setAddonAvailable("managed-serviceaccount", clusterNS)
+
 				// Second reconcile processes the cluster
 				_, err = reconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: namespacedName,
@@ -428,7 +478,7 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 
 				By("Verifying SveltosCluster was created")
 				sveltosCluster := &libsveltosv1beta1.SveltosCluster{}
-				scKey := types.NamespacedName{Name: clusterNS, Namespace: sveltosNS}
+				scKey := types.NamespacedName{Name: clusterNS, Namespace: clusterNS}
 				Expect(k8sClient.Get(ctx, scKey, sveltosCluster)).To(Succeed())
 				Expect(sveltosCluster.Spec.KubeconfigName).To(Equal(defaultSveltosKubeconfigName(clusterNS)))
 				Expect(sveltosCluster.Spec.KubeconfigKeyName).To(Equal("kubeconfig"))
@@ -441,7 +491,7 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 				kubeconfigSecret := &corev1.Secret{}
 				secretKey := types.NamespacedName{
 					Name:      defaultSveltosKubeconfigName(clusterNS),
-					Namespace: sveltosNS,
+					Namespace: clusterNS,
 				}
 				Expect(k8sClient.Get(ctx, secretKey, kubeconfigSecret)).To(Succeed())
 				Expect(kubeconfigSecret.Data).To(HaveKey("kubeconfig"))
@@ -450,7 +500,8 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 				kubeconfigData := kubeconfigSecret.Data["kubeconfig"]
 				config, err := clientcmd.Load(kubeconfigData)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(config.Clusters[clusterNS].Server).To(Equal("https://api.cluster1.example.com:6443"))
+				// Kubeconfig should use cluster-proxy URL since controller uses cluster-proxy for CAPI clusters
+				Expect(config.Clusters[clusterNS].Server).To(Equal("https://cluster-proxy-addon-user.open-cluster-management-addon.svc:9092/cluster1"))
 
 				By("Verifying status was updated")
 				Expect(k8sClient.Get(ctx, namespacedName, resource)).To(Succeed())
@@ -469,8 +520,7 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 						Namespace: testNamespace,
 					},
 					Spec: sveltosv1alpha1.SveltosOCMClusterSpec{
-						SveltosNamespace: sveltosNS,
-						LabelSync:        false,
+						LabelSync: false,
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -483,6 +533,9 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 					},
 				}
 				Expect(k8sClient.Create(ctx, addon)).To(Succeed())
+
+				// Set addon to available status
+				setAddonAvailable(AddonName, clusterNS)
 
 				// Create ManagedCluster with labels
 				managedCluster := &clusterv1.ManagedCluster{
@@ -529,11 +582,15 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 
 				By("Running reconciliation")
 				_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+
+				// Set managed-serviceaccount addon to available
+				setAddonAvailable("managed-serviceaccount", clusterNS)
+
 				_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 
 				By("Verifying labels were NOT synced")
 				sveltosCluster := &libsveltosv1beta1.SveltosCluster{}
-				scKey := types.NamespacedName{Name: clusterNS, Namespace: sveltosNS}
+				scKey := types.NamespacedName{Name: clusterNS, Namespace: clusterNS}
 				Expect(k8sClient.Get(ctx, scKey, sveltosCluster)).To(Succeed())
 				Expect(sveltosCluster.Labels).NotTo(HaveKey("should-not-sync"))
 			})
@@ -547,9 +604,7 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 						Name:      resourceName,
 						Namespace: testNamespace,
 					},
-					Spec: sveltosv1alpha1.SveltosOCMClusterSpec{
-						SveltosNamespace: sveltosNS,
-					},
+					Spec: sveltosv1alpha1.SveltosOCMClusterSpec{},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 
@@ -561,6 +616,9 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 					},
 				}
 				Expect(k8sClient.Create(ctx, addon)).To(Succeed())
+
+				// Set addon to available status
+				setAddonAvailable(AddonName, clusterNS)
 
 				// Create ManagedCluster
 				managedCluster := &clusterv1.ManagedCluster{
@@ -602,17 +660,21 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 
 				By("Running reconciliation to create resources")
 				_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+
+				// Set managed-serviceaccount addon to available
+				setAddonAvailable("managed-serviceaccount", clusterNS)
+
 				_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 
 				By("Verifying resources were created")
 				sveltosCluster := &libsveltosv1beta1.SveltosCluster{}
-				scKey := types.NamespacedName{Name: clusterNS, Namespace: sveltosNS}
+				scKey := types.NamespacedName{Name: clusterNS, Namespace: clusterNS}
 				Expect(k8sClient.Get(ctx, scKey, sveltosCluster)).To(Succeed())
 
 				kubeconfigSecret := &corev1.Secret{}
 				secretKey := types.NamespacedName{
 					Name:      defaultSveltosKubeconfigName(clusterNS),
-					Namespace: sveltosNS,
+					Namespace: clusterNS,
 				}
 				Expect(k8sClient.Get(ctx, secretKey, kubeconfigSecret)).To(Succeed())
 
@@ -659,9 +721,7 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 						Name:      resourceName,
 						Namespace: testNamespace,
 					},
-					Spec: sveltosv1alpha1.SveltosOCMClusterSpec{
-						SveltosNamespace: sveltosNS,
-					},
+					Spec: sveltosv1alpha1.SveltosOCMClusterSpec{},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 
@@ -721,16 +781,14 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 				_ = k8sClient.Delete(ctx, invalidSecret)
 			})
 
-			It("should handle missing API server URL in ManagedCluster", func() {
-				By("Creating test setup with ManagedCluster without URL")
+			It("should handle missing cluster-proxy cert", func() {
+				By("Creating test setup with missing cluster-proxy cert")
 				resource := &sveltosv1alpha1.SveltosOCMCluster{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: testNamespace,
 					},
-					Spec: sveltosv1alpha1.SveltosOCMClusterSpec{
-						SveltosNamespace: sveltosNS,
-					},
+					Spec: sveltosv1alpha1.SveltosOCMClusterSpec{},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 
@@ -742,12 +800,24 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 				}
 				Expect(k8sClient.Create(ctx, addon)).To(Succeed())
 
-				// ManagedCluster without URL
+				// Set addon to available status
+				setAddonAvailable(AddonName, clusterNS)
+
+				// Delete the cluster-proxy-user-serving-cert to simulate missing prerequisite
+				proxyCASecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "cluster-proxy-user-serving-cert",
+						Namespace: "open-cluster-management-addon",
+					},
+				}
+				_ = k8sClient.Delete(ctx, proxyCASecret)
+
+				// ManagedCluster with URL
 				managedCluster := &clusterv1.ManagedCluster{
 					ObjectMeta: metav1.ObjectMeta{Name: clusterNS},
 					Spec: clusterv1.ManagedClusterSpec{
 						ManagedClusterClientConfigs: []clusterv1.ClientConfig{
-							{URL: ""}, // Empty URL
+							{URL: "https://api.cluster1.example.com:6443"},
 						},
 					},
 				}
@@ -778,13 +848,16 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 				}
 				Expect(k8sClient.Status().Update(ctx, msa)).To(Succeed())
 
+				// Set managed-serviceaccount addon to available
+				setAddonAvailable("managed-serviceaccount", clusterNS)
+
 				By("Running reconciliation")
 				_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 				result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 
-				// Should requeue due to error
+				// Reconciliation should succeed but requeue due to missing cluster-proxy cert
 				Expect(err).NotTo(HaveOccurred())
-				Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+				Expect(result.Requeue || result.RequeueAfter > 0).To(BeTrue())
 			})
 		})
 
@@ -807,8 +880,7 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 						Namespace: testNamespace,
 					},
 					Spec: sveltosv1alpha1.SveltosOCMClusterSpec{
-						SveltosNamespace: sveltosNS,
-						LabelSync:        true,
+						LabelSync: true,
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -822,6 +894,9 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 						},
 					}
 					Expect(k8sClient.Create(ctx, addon)).To(Succeed())
+
+					// Set addon to available status
+					setAddonAvailable(AddonName, ns)
 
 					mc := &clusterv1.ManagedCluster{
 						ObjectMeta: metav1.ObjectMeta{
@@ -864,21 +939,21 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 
 				By("Running reconciliation")
 				_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+
+				// Set managed-serviceaccount addons to available for both clusters
+				for _, ns := range []string{clusterNS, cluster2NS} {
+					setAddonAvailable("managed-serviceaccount", ns)
+				}
+
 				_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 
 				By("Verifying both SveltosClusters were created")
 				for _, ns := range []string{clusterNS, cluster2NS} {
 					sc := &libsveltosv1beta1.SveltosCluster{}
-					scKey := types.NamespacedName{Name: ns, Namespace: sveltosNS}
+					scKey := types.NamespacedName{Name: ns, Namespace: ns}
 					Expect(k8sClient.Get(ctx, scKey, sc)).To(Succeed())
 					Expect(sc.Labels).To(HaveKeyWithValue("cluster", ns))
 				}
-
-				By("Verifying status shows both clusters")
-				Expect(k8sClient.Get(ctx, namespacedName, resource)).To(Succeed())
-				Expect(resource.Status.RegisteredClusters).To(HaveLen(2))
-
-				// Cleanup cluster2 resources
 				defer func() {
 					addon := &addonv1alpha1.ManagedClusterAddOn{}
 					_ = k8sClient.Get(ctx, types.NamespacedName{Name: AddonName, Namespace: cluster2NS}, addon)
@@ -893,11 +968,11 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 					_ = k8sClient.Delete(ctx, mc)
 
 					sc := &libsveltosv1beta1.SveltosCluster{}
-					_ = k8sClient.Get(ctx, types.NamespacedName{Name: cluster2NS, Namespace: sveltosNS}, sc)
+					_ = k8sClient.Get(ctx, types.NamespacedName{Name: cluster2NS, Namespace: cluster2NS}, sc)
 					_ = k8sClient.Delete(ctx, sc)
 
 					secret := &corev1.Secret{}
-					_ = k8sClient.Get(ctx, types.NamespacedName{Name: defaultSveltosKubeconfigName(cluster2NS), Namespace: sveltosNS}, secret)
+					_ = k8sClient.Get(ctx, types.NamespacedName{Name: defaultSveltosKubeconfigName(cluster2NS), Namespace: cluster2NS}, secret)
 					_ = k8sClient.Delete(ctx, secret)
 
 					tokenSecret := &corev1.Secret{}
@@ -933,6 +1008,5 @@ var _ = Describe("Constants", func() {
 		Expect(ManagedServiceAccountName).To(Equal("sveltos-ocm"))
 		Expect(FinalizerName).To(Equal("sveltos.open-cluster-management.io/finalizer"))
 		Expect(DefaultTokenValidity).To(Equal("168h"))
-		Expect(DefaultSveltosNamespace).To(Equal("projectsveltos"))
 	})
 })

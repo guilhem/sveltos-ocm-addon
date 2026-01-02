@@ -1,0 +1,80 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: clustermanagementaddons.addon.open-cluster-management.io
+spec:
+  group: addon.open-cluster-management.io
+  names:
+    kind: ClusterManagementAddOn
+    listKind: ClusterManagementAddOnList
+    plural: clustermanagementaddons
+    shortNames:
+    - cma
+    - cmas
+    singular: clustermanagementaddon
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        description: "ClusterManagementAddOn defines the custom resource for managing addons on the OCM hub cluster"
+        x-kubernetes-preserve-unknown-fields: true
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
+            properties:
+              addOnMeta:
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+                properties:
+                  displayName:
+                    type: string
+                  description:
+                    type: string
+              supportedConfigs:
+                type: array
+                items:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                  properties:
+                    group:
+                      type: string
+                    resource:
+                      type: string
+              installStrategy:
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+                properties:
+                  type:
+                    type: string
+                  placements:
+                    type: array
+                    items:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+          status:
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
+            properties:
+              conditions:
+                type: array
+                items:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                  properties:
+                    type:
+                      type: string
+                    status:
+                      type: string
+                    message:
+                      type: string
