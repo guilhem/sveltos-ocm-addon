@@ -30,7 +30,7 @@ import (
 	"k8s.io/client-go/rest"
 	addonv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
-	authv1alpha1 "open-cluster-management.io/managed-serviceaccount/apis/authentication/v1alpha1"
+	authv1beta1 "open-cluster-management.io/managed-serviceaccount/apis/authentication/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -77,7 +77,7 @@ var _ = BeforeSuite(func() {
 	err = clusterv1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = authv1alpha1.AddToScheme(scheme.Scheme)
+	err = authv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
