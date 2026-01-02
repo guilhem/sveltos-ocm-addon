@@ -31,9 +31,12 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	libsveltosv1beta1 "github.com/projectsveltos/libsveltos/api/v1beta1"
 	addonv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
@@ -100,25 +103,17 @@ func (r *SveltosOCMClusterReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 	}
 
-	// List all ManagedClusterAddOns for our addon
+	// List ManagedClusterAddOns for our addon using field selector
 	addonList := &addonv1alpha1.ManagedClusterAddOnList{}
-	if err := r.List(ctx, addonList); err != nil {
+	if err := r.List(ctx, addonList, client.MatchingFields{"metadata.name": AddonName}); err != nil {
 		log.Error(err, "Failed to list ManagedClusterAddOns")
 		return ctrl.Result{}, err
-	}
-
-	// Filter addons for our addon name
-	var ourAddons []addonv1alpha1.ManagedClusterAddOn
-	for _, addon := range addonList.Items {
-		if addon.Name == AddonName {
-			ourAddons = append(ourAddons, addon)
-		}
 	}
 
 	// Process each managed cluster addon
 	var registeredClusters []sveltosv1alpha1.RegisteredClusterInfo
 	var requeue bool
-	for _, addon := range ourAddons {
+	for _, addon := range addonList.Items {
 		clusterName := addon.Namespace
 
 		result, clusterInfo, err := r.reconcileCluster(ctx, sveltosOCMCluster, clusterName)
@@ -472,10 +467,50 @@ func defaultSveltosKubeconfigName(clusterName string) string {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *SveltosOCMClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(),
+		&addonv1alpha1.ManagedClusterAddOn{},
+		"metadata.name",
+		func(o client.Object) []string { return []string{o.GetName()} },
+	); err != nil {
+		return fmt.Errorf("failed to index ManagedClusterAddOn by name: %w", err)
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&sveltosv1alpha1.SveltosOCMCluster{}).
+		// Watch ManagedClusterAddOn to trigger reconciliation when addons are created/deleted
+		Watches(
+			&addonv1alpha1.ManagedClusterAddOn{},
+			handler.EnqueueRequestsFromMapFunc(r.findSveltosOCMClusterForAddon),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(object client.Object) bool {
+				return object.GetName() == AddonName
+			})),
+		).
 		// Note: Not using Owns() for ManagedServiceAccount because they are in
 		// different namespaces and cross-namespace owner references are not allowed.
 		Named("sveltosocmcluster").
 		Complete(r)
+}
+
+// findSveltosOCMClusterForAddon maps a ManagedClusterAddOn to the referenced SveltosOCMCluster(s)
+func (r *SveltosOCMClusterReconciler) findSveltosOCMClusterForAddon(_ context.Context, obj client.Object) []ctrl.Request {
+	addon, ok := obj.(*addonv1alpha1.ManagedClusterAddOn)
+	if !ok {
+		return nil
+	}
+
+	// Find all SveltosOCMCluster references in configReferences
+	var requests []ctrl.Request
+	for _, configRef := range addon.Status.ConfigReferences {
+		if configRef.Group == sveltosv1alpha1.GroupVersion.Group &&
+			configRef.Resource == "sveltosocmclusters" {
+			requests = append(requests, ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      configRef.Name,
+					Namespace: configRef.Namespace,
+				},
+			})
+		}
+	}
+
+	return requests
 }
