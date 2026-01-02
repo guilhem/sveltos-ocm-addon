@@ -23,7 +23,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -296,7 +295,7 @@ func (r *SveltosOCMClusterReconciler) checkManagedServiceAccountAddon(
 	// First check if ClusterManagementAddOn exists (addon installed on hub)
 	cma := &addonv1alpha1.ClusterManagementAddOn{}
 	if err := r.Get(ctx, types.NamespacedName{Name: "managed-serviceaccount"}, cma); err != nil {
-		if errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return fmt.Errorf("managed-serviceaccount ClusterManagementAddOn not found. Please install the managed-serviceaccount addon on the hub: https://open-cluster-management.io/getting-started/integration/managed-serviceaccount/")
 		}
 		return fmt.Errorf("failed to get managed-serviceaccount ClusterManagementAddOn: %w", err)

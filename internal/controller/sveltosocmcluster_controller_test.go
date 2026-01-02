@@ -857,7 +857,7 @@ var _ = Describe("SveltosOCMCluster Controller", func() {
 
 				// Reconciliation should succeed but requeue due to missing cluster-proxy cert
 				Expect(err).NotTo(HaveOccurred())
-				Expect(result.Requeue || result.RequeueAfter > 0).To(BeTrue())
+				Expect(result.RequeueAfter).To(BeNumerically(">", 0))
 			})
 		})
 
