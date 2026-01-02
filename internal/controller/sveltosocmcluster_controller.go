@@ -24,7 +24,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/scheme"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -387,7 +386,7 @@ func (r *SveltosOCMClusterReconciler) createOrUpdateRBACManifestWork(
 		},
 	}
 
-	codecs := serializer.NewCodecFactory(scheme.Scheme)
+	codecs := serializer.NewCodecFactory(r.Scheme)
 	info, ok := runtime.SerializerInfoForMediaType(codecs.SupportedMediaTypes(), runtime.ContentTypeJSON)
 	if !ok {
 		return fmt.Errorf("serializer for media type %s not found", runtime.ContentTypeJSON)
