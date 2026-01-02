@@ -1,12 +1,11 @@
 # syntax=docker/dockerfile:experimental
+
 # Build the manager binary
 FROM golang:1.25 AS builder
 ARG TARGETOS
 ARG TARGETARCH
-ARG BUILDKIT_INLINE_CACHE=1
 
-WORKSPACE /workspace
-
+WORKDIR /workspace
 # Copy the Go Modules manifests
 COPY go.mod go.mod
 COPY go.sum go.sum
