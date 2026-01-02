@@ -27,8 +27,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	kjson "k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -386,13 +386,20 @@ func (r *SveltosOCMClusterReconciler) createOrUpdateRBACManifestWork(
 		},
 	}
 
-	// Serialize the resources to JSON
-	clusterRoleRaw, err := runtime.Encode(unstructured.UnstructuredJSONScheme, clusterRole)
+	// Serialize the resources to JSON using the scheme (auto-injects GVK)
+	serializer := kjson.NewSerializerWithOptions(
+		kjson.DefaultMetaFactory,
+		r.Scheme, // creater
+		r.Scheme, // typer - used to look up GVK
+		kjson.SerializerOptions{},
+	)
+
+	clusterRoleRaw, err := runtime.Encode(serializer, clusterRole)
 	if err != nil {
 		return fmt.Errorf("failed to encode ClusterRole: %w", err)
 	}
 
-	clusterRoleBindingRaw, err := runtime.Encode(unstructured.UnstructuredJSONScheme, clusterRoleBinding)
+	clusterRoleBindingRaw, err := runtime.Encode(serializer, clusterRoleBinding)
 	if err != nil {
 		return fmt.Errorf("failed to encode ClusterRoleBinding: %w", err)
 	}
