@@ -67,6 +67,7 @@ type SveltosOCMClusterReconciler struct {
 // +kubebuilder:rbac:groups=sveltos.open-cluster-management.io,resources=sveltosocmclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=sveltos.open-cluster-management.io,resources=sveltosocmclusters/finalizers,verbs=update
 // +kubebuilder:rbac:groups=addon.open-cluster-management.io,resources=managedclusteraddons,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=addon.open-cluster-management.io,resources=managedclusteraddons/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=addon.open-cluster-management.io,resources=clustermanagementaddons,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.open-cluster-management.io,resources=managedclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=authentication.open-cluster-management.io,resources=managedserviceaccounts,verbs=get;list;watch;create;update;patch;delete
@@ -112,12 +113,17 @@ func (r *SveltosOCMClusterReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// Process each managed cluster addon
 	var registeredClusters []sveltosv1alpha1.RegisteredClusterInfo
 	var requeue bool
-	for _, addon := range addonList.Items {
+	for i := range addonList.Items {
+		addon := &addonList.Items[i]
 		clusterName := addon.Namespace
 
 		result, clusterInfo, err := r.reconcileCluster(ctx, sveltosOCMCluster, clusterName)
 		if err != nil {
 			log.Error(err, "Failed to reconcile cluster", "cluster", clusterName)
+			// Update addon status to reflect the error
+			if updateErr := r.updateManagedClusterAddOnStatus(ctx, addon, false, err.Error()); updateErr != nil {
+				log.Error(updateErr, "Failed to update ManagedClusterAddOn status", "cluster", clusterName)
+			}
 			// Continue with other clusters but requeue
 			requeue = true
 			continue
@@ -129,6 +135,10 @@ func (r *SveltosOCMClusterReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 		if clusterInfo != nil {
 			registeredClusters = append(registeredClusters, *clusterInfo)
+			// Update addon status to Available
+			if updateErr := r.updateManagedClusterAddOnStatus(ctx, addon, true, "SveltosCluster created successfully"); updateErr != nil {
+				log.Error(updateErr, "Failed to update ManagedClusterAddOn status", "cluster", clusterName)
+			}
 		}
 	}
 
@@ -259,6 +269,39 @@ func (r *SveltosOCMClusterReconciler) reconcileCluster(
 
 	log.Info("Successfully reconciled cluster", "cluster", clusterName)
 	return ctrl.Result{}, clusterInfo, nil
+}
+
+// updateManagedClusterAddOnStatus updates the ManagedClusterAddOn status to report health
+// This is required because sveltos-ocm-addon is a hub-only controller (no agent on managed clusters)
+// and uses Customized health check mode instead of Lease-based health reporting.
+func (r *SveltosOCMClusterReconciler) updateManagedClusterAddOnStatus(
+	ctx context.Context,
+	addon *addonv1alpha1.ManagedClusterAddOn,
+	available bool,
+	message string,
+) error {
+	// Set health check mode to Customized (hub manages health status)
+	addon.Status.HealthCheck.Mode = addonv1alpha1.HealthCheckModeCustomized
+
+	// Update the Available condition
+	status := metav1.ConditionFalse
+	reason := "AddonNotReady"
+	if available {
+		status = metav1.ConditionTrue
+		reason = "AddonReady"
+	}
+
+	if meta.SetStatusCondition(&addon.Status.Conditions, metav1.Condition{
+		Type:               addonv1alpha1.ManagedClusterAddOnConditionAvailable,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: addon.Generation,
+	}) {
+		return r.Status().Update(ctx, addon)
+	}
+
+	return nil
 }
 
 // configureManagedServiceAccount configures a ManagedServiceAccount resource
