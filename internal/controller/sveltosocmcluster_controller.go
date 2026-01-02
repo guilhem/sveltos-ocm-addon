@@ -145,9 +145,10 @@ func (r *SveltosOCMClusterReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// Update status
 	sveltosOCMCluster.Status.RegisteredClusters = registeredClusters
 
+	changed := false
 	// Update conditions based on the state
 	if len(registeredClusters) > 0 {
-		meta.SetStatusCondition(&sveltosOCMCluster.Status.Conditions, metav1.Condition{
+		changed = meta.SetStatusCondition(&sveltosOCMCluster.Status.Conditions, metav1.Condition{
 			Type:               "Available",
 			Status:             metav1.ConditionTrue,
 			Reason:             "ClustersRegistered",
@@ -155,7 +156,7 @@ func (r *SveltosOCMClusterReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			ObservedGeneration: sveltosOCMCluster.Generation,
 		})
 	} else {
-		meta.SetStatusCondition(&sveltosOCMCluster.Status.Conditions, metav1.Condition{
+		changed = meta.SetStatusCondition(&sveltosOCMCluster.Status.Conditions, metav1.Condition{
 			Type:               "Available",
 			Status:             metav1.ConditionFalse,
 			Reason:             "NoClusters",
@@ -164,9 +165,11 @@ func (r *SveltosOCMClusterReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		})
 	}
 
-	if err := r.Status().Update(ctx, sveltosOCMCluster); err != nil {
-		log.Error(err, "Failed to update status")
-		return ctrl.Result{}, err
+	if changed {
+		if err := r.Status().Update(ctx, sveltosOCMCluster); err != nil {
+			log.Error(err, "Failed to update status")
+			return ctrl.Result{}, err
+		}
 	}
 
 	if requeue {
