@@ -19,10 +19,21 @@ rules:
 - apiGroups:
   - addon.open-cluster-management.io
   resources:
-  - managedclusteraddons
+  - clustermanagementaddons
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - addon.open-cluster-management.io
+  resources:
+  - managedclusteraddons
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - authentication.open-cluster-management.io
