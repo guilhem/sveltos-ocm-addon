@@ -56,8 +56,6 @@ const (
 	FinalizerName = "sveltos.open-cluster-management.io/finalizer"
 	// DefaultTokenValidity is the default token validity period
 	DefaultTokenValidity = "168h" // 7 days
-	// DefaultSveltosNamespace is the default namespace for SveltosCluster
-	DefaultSveltosNamespace = "projectsveltos"
 )
 
 // SveltosOCMClusterReconciler reconciles a SveltosOCMCluster object
@@ -243,10 +241,8 @@ func (r *SveltosOCMClusterReconciler) reconcileCluster(
 	}
 
 	// 5. Create or update SveltosCluster
-	sveltosNamespace := sveltosOCMCluster.Spec.SveltosNamespace
-	if sveltosNamespace == "" {
-		sveltosNamespace = DefaultSveltosNamespace
-	}
+	// Use the OCM cluster namespace (same as ManagedClusterAddOn namespace)
+	sveltosNamespace := clusterName
 
 	sveltosCluster, err := r.createOrUpdateSveltosCluster(
 		ctx,
@@ -344,6 +340,9 @@ func (r *SveltosOCMClusterReconciler) createOrUpdateSveltosCluster(
 ) (*libsveltosv1beta1.SveltosCluster, error) {
 	log := logf.FromContext(ctx)
 
+	// Note: We use the OCM cluster namespace which already exists (created by OCM)
+	// No need to create it ourselves
+
 	// Extract token from the secret
 	token, ok := tokenSecret.Data["token"]
 	if !ok {
@@ -408,9 +407,6 @@ func (r *SveltosOCMClusterReconciler) createOrUpdateSveltosCluster(
 		sveltosCluster.Spec = libsveltosv1beta1.SveltosClusterSpec{
 			KubeconfigName:    kubeconfigSecretName,
 			KubeconfigKeyName: "kubeconfig",
-			TokenRequestRenewalOption: &libsveltosv1beta1.TokenRequestRenewalOption{
-				RenewTokenRequestInterval: metav1.Duration{Duration: 1 * time.Hour},
-			},
 		}
 
 		// Sync labels if enabled
@@ -437,13 +433,11 @@ func (r *SveltosOCMClusterReconciler) reconcileDelete(
 ) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	sveltosNamespace := sveltosOCMCluster.Spec.SveltosNamespace
-	if sveltosNamespace == "" {
-		sveltosNamespace = DefaultSveltosNamespace
-	}
-
 	// Clean up all managed resources
+	// Use the OCM cluster namespace (same as ManagedClusterAddOn namespace)
 	for _, cluster := range sveltosOCMCluster.Status.RegisteredClusters {
+		sveltosNamespace := cluster.ClusterNamespace
+
 		kubeconfigSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      defaultSveltosKubeconfigName(cluster.ClusterName),

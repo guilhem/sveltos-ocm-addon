@@ -22,16 +22,6 @@ import (
 
 // SveltosOCMClusterSpec defines the desired state of SveltosOCMCluster
 type SveltosOCMClusterSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
-
-	// SveltosNamespace is the namespace where SveltosCluster resources will be created
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:default=projectsveltos
-	// +optional
-	SveltosNamespace string `json:"sveltosNamespace,omitempty"`
 
 	// TokenValidity specifies the validity period for the managed service account token
 	// Format: golang duration string (e.g., "24h", "168h")

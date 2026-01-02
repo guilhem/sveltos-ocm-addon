@@ -44,12 +44,6 @@ spec:
                 description: LabelSync specifies whether to sync labels from ManagedCluster
                   to SveltosCluster
                 type: boolean
-              sveltosNamespace:
-                default: projectsveltos
-                description: SveltosNamespace is the namespace where SveltosCluster
-                  resources will be created
-                minLength: 1
-                type: string
               tokenValidity:
                 description: |-
                   TokenValidity specifies the validity period for the managed service account token
