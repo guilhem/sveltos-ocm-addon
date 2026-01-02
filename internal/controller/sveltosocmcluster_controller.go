@@ -23,9 +23,11 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
@@ -41,6 +43,7 @@ import (
 	libsveltosv1beta1 "github.com/projectsveltos/libsveltos/api/v1beta1"
 	addonv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
+	workv1 "open-cluster-management.io/api/work/v1"
 	authv1beta1 "open-cluster-management.io/managed-serviceaccount/apis/authentication/v1beta1"
 
 	sveltosv1alpha1 "github.com/guilhem/sveltos-ocm-addon/api/v1alpha1"
@@ -55,6 +58,12 @@ const (
 	FinalizerName = "sveltos.open-cluster-management.io/finalizer"
 	// DefaultTokenValidity is the default token validity period
 	DefaultTokenValidity = "168h" // 7 days
+	// RBACManifestWorkName is the name of the ManifestWork for RBAC
+	RBACManifestWorkName = "sveltos-ocm-rbac"
+	// RBACClusterRoleName is the name of the ClusterRole on managed clusters
+	RBACClusterRoleName = "sveltos-ocm-admin"
+	// ManagedServiceAccountNamespace is the namespace where the ServiceAccount is created on managed clusters
+	ManagedServiceAccountNamespace = "open-cluster-management-agent-addon"
 )
 
 // SveltosOCMClusterReconciler reconciles a SveltosOCMCluster object
@@ -70,6 +79,7 @@ type SveltosOCMClusterReconciler struct {
 // +kubebuilder:rbac:groups=addon.open-cluster-management.io,resources=managedclusteraddons/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=addon.open-cluster-management.io,resources=clustermanagementaddons,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.open-cluster-management.io,resources=managedclusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=work.open-cluster-management.io,resources=manifestworks,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=authentication.open-cluster-management.io,resources=managedserviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=lib.projectsveltos.io,resources=sveltosclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
@@ -223,6 +233,11 @@ func (r *SveltosOCMClusterReconciler) reconcileCluster(
 	}
 	log.V(1).Info("ManagedServiceAccount reconciled", "cluster", clusterName, "operation", msaOp)
 
+	// 1.5. Ensure RBAC ManifestWork exists to grant permissions on managed cluster
+	if err := r.createOrUpdateRBACManifestWork(ctx, clusterName); err != nil {
+		return ctrl.Result{}, nil, fmt.Errorf("failed to create or update RBAC ManifestWork: %w", err)
+	}
+
 	// 2. Check if token is ready
 	if msa.Status.TokenSecretRef == nil || msa.Status.TokenSecretRef.Name == "" {
 		log.Info("Waiting for ManagedServiceAccount token", "cluster", clusterName)
@@ -328,6 +343,81 @@ func (r *SveltosOCMClusterReconciler) configureManagedServiceAccount(
 			Validity: validity,
 		},
 	}
+}
+
+// createOrUpdateRBACManifestWork creates or updates a ManifestWork to deploy RBAC resources
+// to the managed cluster, granting the ManagedServiceAccount the necessary permissions.
+func (r *SveltosOCMClusterReconciler) createOrUpdateRBACManifestWork(
+	ctx context.Context,
+	clusterName string,
+) error {
+	log := logf.FromContext(ctx)
+
+	// Build the ClusterRole
+	clusterRole := &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: RBACClusterRoleName,
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{"*"},
+				Resources: []string{"*"},
+				Verbs:     []string{"*"},
+			},
+		},
+	}
+
+	// Build the ClusterRoleBinding
+	clusterRoleBinding := &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: RBACClusterRoleName,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Name:      ManagedServiceAccountName,
+				Namespace: ManagedServiceAccountNamespace,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "ClusterRole",
+			Name:     RBACClusterRoleName,
+		},
+	}
+
+	// Serialize the resources to JSON
+	clusterRoleRaw, err := runtime.Encode(unstructured.UnstructuredJSONScheme, clusterRole)
+	if err != nil {
+		return fmt.Errorf("failed to encode ClusterRole: %w", err)
+	}
+
+	clusterRoleBindingRaw, err := runtime.Encode(unstructured.UnstructuredJSONScheme, clusterRoleBinding)
+	if err != nil {
+		return fmt.Errorf("failed to encode ClusterRoleBinding: %w", err)
+	}
+
+	// Create or update the ManifestWork
+	manifestWork := &workv1.ManifestWork{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      RBACManifestWorkName,
+			Namespace: clusterName,
+		},
+	}
+
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, manifestWork, func() error {
+		manifestWork.Spec.Workload.Manifests = []workv1.Manifest{
+			{RawExtension: runtime.RawExtension{Raw: clusterRoleRaw}},
+			{RawExtension: runtime.RawExtension{Raw: clusterRoleBindingRaw}},
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create or update RBAC ManifestWork: %w", err)
+	}
+
+	log.Info("RBAC ManifestWork reconciled", "cluster", clusterName, "operation", op)
+	return nil
 }
 
 // checkManagedServiceAccountAddon verifies that the managed-serviceaccount addon is installed
@@ -514,6 +604,17 @@ func (r *SveltosOCMClusterReconciler) reconcileDelete(
 		}
 		if err := r.Delete(ctx, msa); err != nil && !apierrors.IsNotFound(err) {
 			log.Error(err, "Failed to delete ManagedServiceAccount", "cluster", cluster.ClusterName)
+		}
+
+		// Delete RBAC ManifestWork
+		manifestWork := &workv1.ManifestWork{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      RBACManifestWorkName,
+				Namespace: cluster.ClusterNamespace,
+			},
+		}
+		if err := r.Delete(ctx, manifestWork); err != nil && !apierrors.IsNotFound(err) {
+			log.Error(err, "Failed to delete RBAC ManifestWork", "cluster", cluster.ClusterName)
 		}
 
 		// Delete kubeconfig secret
