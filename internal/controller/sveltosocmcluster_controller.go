@@ -528,7 +528,7 @@ func (r *SveltosOCMClusterReconciler) createOrUpdateSveltosCluster(
 	secretOp, err := controllerutil.CreateOrUpdate(ctx, r.Client, kubeconfigSecret, func() error {
 		kubeconfigSecret.Type = corev1.SecretTypeOpaque
 		kubeconfigSecret.Data = map[string][]byte{
-			"kubeconfig": kubeconfig,
+			sveltosv1alpha1.KubeconfigKeyName: kubeconfig,
 		}
 		return nil
 	})
@@ -546,10 +546,9 @@ func (r *SveltosOCMClusterReconciler) createOrUpdateSveltosCluster(
 	}
 
 	clusterOp, err := controllerutil.CreateOrUpdate(ctx, r.Client, sveltosCluster, func() error {
-		sveltosCluster.Spec = libsveltosv1beta1.SveltosClusterSpec{
-			KubeconfigName:    kubeconfigSecretName,
-			KubeconfigKeyName: "kubeconfig",
-		}
+		// Only set the fields we manage, preserve user-configured fields (paused, etc.)
+		sveltosCluster.Spec.KubeconfigName = kubeconfigSecretName
+		sveltosCluster.Spec.KubeconfigKeyName = sveltosv1alpha1.KubeconfigKeyName
 
 		// Sync labels if enabled
 		if sveltosOCMCluster.Spec.LabelSync {

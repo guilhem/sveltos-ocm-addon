@@ -20,6 +20,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	// KubeconfigKeyName is the key name used to store kubeconfig data in secrets
+	KubeconfigKeyName = "kubeconfig"
+)
+
 // SveltosOCMClusterSpec defines the desired state of SveltosOCMCluster
 type SveltosOCMClusterSpec struct {
 
