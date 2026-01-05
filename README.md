@@ -43,21 +43,63 @@ spec:
 
 ## Cluster Selection
 
-By default, all clusters are selected. To filter, modify the `Placement`:
+To filter clusters, create a `Placement` and reference it in the `ClusterManagementAddOn`:
 
 ```yaml
+# 1. Namespace + ManagedClusterSetBinding
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sveltos-ocm-addon
+---
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSetBinding
+metadata:
+  name: default
+  namespace: sveltos-ocm-addon
+spec:
+  clusterSet: default
+---
+# 2. Placement
 apiVersion: cluster.open-cluster-management.io/v1beta1
 kind: Placement
 metadata:
-  name: sveltos-ocm
-  namespace: open-cluster-management-addon
+  name: sveltos-enabled-clusters
+  namespace: sveltos-ocm-addon
 spec:
   predicates:
     - requiredClusterSelector:
         labelSelector:
           matchLabels:
             sveltos-enabled: "true"
+---
+# 3. ClusterManagementAddOn referencing the Placement
+apiVersion: addon.open-cluster-management.io/v1alpha1
+kind: ClusterManagementAddOn
+metadata:
+  name: sveltos-ocm-addon
+  annotations:
+    addon.open-cluster-management.io/lifecycle: "addon-manager"
+spec:
+  addOnMeta:
+    displayName: Sveltos OCM Integration
+    description: Registers OCM managed clusters with Sveltos
+  supportedConfigs:
+    - group: sveltos.open-cluster-management.io
+      resource: sveltosocmclusters
+  installStrategy:
+    type: Placements
+    placements:
+      - name: sveltos-enabled-clusters        # References the Placement above
+        namespace: sveltos-ocm-addon
+        configs:
+          - group: sveltos.open-cluster-management.io
+            resource: sveltosocmclusters
+            name: default
+            namespace: open-cluster-management
 ```
+
+Then label clusters: `kubectl label managedcluster <name> sveltos-enabled=true`
 
 ## Monitoring
 
