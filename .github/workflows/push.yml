@@ -34,6 +34,12 @@ jobs:
           tags: |
             type=ref,event=branch
             type=sha,prefix=
+          labels: |
+            org.opencontainers.image.title=Sveltos OCM Addon
+            org.opencontainers.image.description=An OCM addon that integrates managed clusters with Sveltos for multi-cluster management
+            org.opencontainers.image.vendor=Open Cluster Management
+            org.opencontainers.image.documentation=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=Apache-2.0
 
       - name: Cache
         uses: actions/cache@v4
