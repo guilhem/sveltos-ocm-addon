@@ -558,6 +558,14 @@ func (r *SveltosOCMClusterReconciler) createOrUpdateSveltosCluster(
 			}
 			maps.Copy(sveltosCluster.Labels, managedCluster.Labels)
 		}
+
+		// Put cluster in a shard if specified
+		if sveltosOCMCluster.Spec.Shard != "" {
+			if sveltosCluster.Annotations == nil {
+				sveltosCluster.Annotations = make(map[string]string)
+			}
+			sveltosCluster.Annotations["sharding.projectsveltos.io/key"] = sveltosOCMCluster.Spec.Shard
+		}
 		return nil
 	})
 	if err != nil {

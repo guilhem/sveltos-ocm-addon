@@ -32,6 +32,11 @@ type SveltosOCMClusterSpec struct {
 	// +kubebuilder:default=true
 	// +optional
 	LabelSync bool `json:"labelSync"`
+
+	// Shard specifies which shard the managed clusters belong to.
+	// If not specified, clusters are not assigned to any shard.
+	// +optional
+	Shard string `json:"shard,omitempty"`
 }
 
 // RegisteredClusterInfo contains information about a registered cluster

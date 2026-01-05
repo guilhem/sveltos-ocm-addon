@@ -44,6 +44,11 @@ spec:
                 description: LabelSync specifies whether to sync labels from ManagedCluster
                   to SveltosCluster
                 type: boolean
+              shard:
+                description: |-
+                  Shard specifies which shard the managed clusters belong to.
+                  If not specified, clusters are not assigned to any shard.
+                type: string
               tokenValidity:
                 description: |-
                   TokenValidity specifies the validity period for the managed service account token
