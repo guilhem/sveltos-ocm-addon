@@ -1,6 +1,26 @@
 # Sveltos OCM Addon
 
-Integrates OCM managed clusters with Sveltos via cluster-proxy. No agent deployed on managed clusters.
+An [Open Cluster Management](https://open-cluster-management.io/) addon that automatically registers OCM managed clusters as [Sveltos](https://projectsveltos.github.io/sveltos/) clusters.
+
+## Why?
+
+**OCM** excels at cluster registration and lifecycle management, while **Sveltos** provides powerful Kubernetes add-on deployment with features like templating, drift detection, and dry-run. This addon bridges both systems, letting you:
+
+- Use OCM's cluster discovery and Placement API for cluster selection
+- Deploy workloads via Sveltos ClusterProfiles/Profiles
+- Sync labels from ManagedCluster to SveltosCluster for consistent targeting
+
+## How it works
+
+1. A `ManagedClusterAddOn` called "sveltos-ocm-addon" is created on selected clusters (manually or via Placement)
+2. The controller creates a `ManagedServiceAccount` to obtain a token for each cluster
+3. A kubeconfig secret is created on the hub. It uses `cluster-proxy` to reach the managed cluster.
+4. RBAC for sveltos is deployed on managed clusters via `ManifestWork`
+5. A `SveltosCluster` resource is created on the hub.  
+   Based on the `SveltosOCMCluster` configuration:
+   1. Labels from the OCM `ManagedCluster` are copied to the `SveltosCluster`
+   2. The shard label is added to the `SveltosCluster`
+6. The Sveltos controller picks up the `SveltosCluster` and starts managing it.
 
 ## Prerequisites
 
@@ -116,10 +136,10 @@ kubectl logs -n sveltos-ocm-addon-system deploy/sveltos-ocm-addon-controller-man
 
 ## Troubleshooting
 
-| Issue | Check |
-|-------|-------|
-| Addon not installed | `kubectl get managedclusteraddon sveltos-ocm-addon -n <cluster>` |
-| Token not ready | `kubectl get managedserviceaccount sveltos-ocm -n <cluster>` |
+| Issue                | Check                                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| Addon not installed  | `kubectl get managedclusteraddon sveltos-ocm-addon -n <cluster>`  |
+| Token not ready      | `kubectl get managedserviceaccount sveltos-ocm -n <cluster>`      |
 | Cluster not selected | `kubectl get placementdecisions -n open-cluster-management-addon` |
 
 ## Uninstall
@@ -133,69 +153,84 @@ make undeploy uninstall
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    subgraph Hub["Hub Cluster"]
-        CMA[ClusterManagementAddOn<br/>sveltos-ocm-addon]
-        Placement[Placement]
-        SOC[SveltosOCMCluster<br/>configuration]
-
-        subgraph Controller["sveltos-ocm-addon controller"]
-            Reconciler[Reconciler]
-        end
-
-        subgraph PerCluster["Per managed cluster (namespace: cluster-name)"]
-            MCA[ManagedClusterAddOn]
-            MSA[ManagedServiceAccount]
-            MW[ManifestWork<br/>RBAC]
-            Secret[kubeconfig Secret]
-            SC[SveltosCluster]
-        end
-
-        CMA --> Placement
-        Placement -->|selects| MCA
-        SOC -->|config| Reconciler
-        MCA -->|triggers| Reconciler
-        Reconciler -->|creates| MSA
-        Reconciler -->|creates| MW
-        Reconciler -->|creates| Secret
-        Reconciler -->|creates| SC
-    end
-
-    subgraph Managed["Managed Cluster"]
-        SA[ServiceAccount<br/>sveltos-ocm]
-        RBAC[ClusterRole/Binding]
-    end
-
-    subgraph Proxy["cluster-proxy"]
-        CP[cluster-proxy-addon-user]
-    end
-
-    MSA -.->|generates token| SA
-    MW -.->|deploys| RBAC
-    SC -->|via| CP
-    CP -->|tunnel| Managed
-```
-
 ### Reconciliation Flow
 
 ```mermaid
 sequenceDiagram
-    participant P as Placement
-    participant AM as addon-manager
-    participant C as Controller
-    participant MSA as ManagedServiceAccount
-    participant MC as Managed Cluster
+    box Configuration
+      participant SOC as SveltosOCMCluster
+      participant CA as ClusterManagementAddOn
+      participant P as Placement
+    end
+    participant AM as OCM addon-manager
+
+    CA->>P: References
 
     P->>AM: Selects cluster
-    AM->>AM: Creates ManagedClusterAddOn
-    AM-->>C: Triggers reconcile
-    C->>MSA: Creates ManagedServiceAccount
-    C->>MC: Deploys RBAC (ManifestWork)
-    MSA-->>MC: Creates ServiceAccount + Token
-    MSA-->>C: Token ready
-    C->>C: Creates kubeconfig Secret
-    C->>C: Creates SveltosCluster
+    create participant MCA as ManagedClusterAddOn
+    AM->>MCA: Creates
+    participant C as sveltos-ocm-addon
+    participant SOC as SveltosOCMCluster
+    MCA-->>C: Triggers reconcile
+    C->>SOC: Reads config (tokenValidity, labelSync, shard)
+```
+
+
+```mermaid
+sequenceDiagram
+    participant C as sveltos-ocm-addon
+
+    loop For each selected ManagedClusterAddOn
+      par Kubeconfig
+        create participant MSA as ManagedServiceAccount
+        C->>MSA: Creates
+        create participant SA as ServiceAccount
+        MSA-->>SA: Creates ServiceAccount
+        SA-->>MSA: Token ready
+        create participant S as Secret
+        C->>S: Creates kubeconfig
+      end
+
+      par RBAC
+        create participant MW as ManifestWork
+        C->>MW: Creates (RBAC)
+        create participant CR as ClusterRole + Binding
+        MW-->>CR: Deploys ClusterRole + Binding
+      end
+      
+      create participant SC as SveltosCluster
+      C->>SC: Creates (with labels, shard)
+    end
+    participant Sveltos as Sveltos Controller
+    Sveltos->>SC: Manages
+
+```
+
+### Network Flow
+
+How Sveltos reaches managed clusters through cluster-proxy:
+
+```mermaid
+flowchart LR
+    subgraph Hub["Hub Cluster"]
+        Sveltos[Sveltos Controller]
+        SC[SveltosCluster]
+        Kubeconfig[Secret<br/>cluster-sveltos-kubeconfig]
+        ProxyS[proxyServer<br/>proxy-entrypoint.svc:9092]
+    end
+
+    subgraph Managed["Managed Cluster"]
+        SA[ServiceAccount]
+        ProxyA[Proxy-Agent]
+        API[kube-apiserver]
+    end
+
+    Sveltos -->|discover| SC
+    Sveltos -->|read| Kubeconfig
+    Kubeconfig -->|token from| SA
+    Sveltos -->|Connect| ProxyS
+    ProxyS <-->|tunnel| ProxyA
+    ProxyA -->|forwards to| API
 ```
 
 ## References
